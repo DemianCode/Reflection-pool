@@ -62,7 +62,7 @@ export default async function AdminHome() {
               defaultValue="REFLECTION"
             >
               <option value="REFLECTION">Reflection</option>
-              <option value="QUIZ" disabled>Quiz (coming soon)</option>
+              <option value="QUIZ">Quiz</option>
             </select>
           </label>
           <button
