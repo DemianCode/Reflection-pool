@@ -46,8 +46,8 @@ const widgetSource = `(function () {
       return;
     }
     var config = await configRes.json();
-    if (config.type !== "REFLECTION") {
-      host.innerHTML = '<div style="color:#dc2626;font-family:sans-serif">Reflection Pool: quiz embed coming soon.</div>';
+    if (config.type !== "REFLECTION" && config.type !== "QUIZ") {
+      host.innerHTML = '<div style="color:#dc2626;font-family:sans-serif">Reflection Pool: unsupported tool type.</div>';
       return;
     }
 
@@ -55,7 +55,11 @@ const widgetSource = `(function () {
     var css = cssRes.ok ? await cssRes.text() : "";
 
     var root = makeRoot(host, css);
-    renderReflection(root, toolId, config);
+    if (config.type === "QUIZ") {
+      renderQuiz(root, toolId, config);
+    } else {
+      renderReflection(root, toolId, config);
+    }
   }
 
   function renderReflection(root, toolId, config) {
@@ -200,6 +204,124 @@ const widgetSource = `(function () {
         if (p) p.textContent = prompts[promptIndex].text;
       }, 25000);
     }
+  }
+
+  function renderQuiz(root, toolId, config) {
+    var quiz = config.quiz || {};
+    var sourceQuestions = (quiz.questions || []).filter(function (q) {
+      return q && Array.isArray(q.options) && q.options.length >= 2
+        && typeof q.correctIndex === 'number'
+        && q.correctIndex >= 0 && q.correctIndex < q.options.length;
+    });
+    var shouldShuffle = quiz.shuffle !== false;
+    var questionCount = quiz.questionCount;
+
+    function buildDeck() {
+      var deck = sourceQuestions.slice();
+      if (shouldShuffle) {
+        for (var i = deck.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+        }
+      }
+      if (questionCount && questionCount > 0) deck = deck.slice(0, questionCount);
+      return deck;
+    }
+
+    var deck = buildDeck();
+    var index = 0;
+    var selected = null;
+    var correctCount = 0;
+    var finished = false;
+
+    function renderEmpty() {
+      root.innerHTML = '<p class="rp-muted">No questions are active for this tool yet.</p>';
+    }
+
+    function renderQuestion() {
+      var q = deck[index];
+      var html =
+        '<p class="rp-quiz-progress">Question ' + (index + 1) + ' of ' + deck.length + '</p>' +
+        '<p class="rp-quiz-question">' + escapeHtml(q.text) + '</p>' +
+        '<div class="rp-quiz-options" role="list">';
+      for (var i = 0; i < q.options.length; i++) {
+        html += '<button type="button" role="listitem" class="rp-quiz-option" data-rp-option="' + i + '">' +
+          escapeHtml(q.options[i]) + '</button>';
+      }
+      html += '</div><div data-rp-feedback></div>';
+      root.innerHTML = html;
+      var opts = root.querySelectorAll('[data-rp-option]');
+      for (var k = 0; k < opts.length; k++) {
+        opts[k].addEventListener('click', onPick);
+      }
+    }
+
+    function renderScore() {
+      var pct = Math.round((correctCount / deck.length) * 100);
+      root.innerHTML =
+        '<p class="rp-quiz-score">You scored <strong>' + correctCount + ' / ' + deck.length +
+        '</strong> (' + pct + '%)</p>' +
+        '<button type="button" class="rp-quiz-restart" data-rp-restart>Try again</button>';
+      var btn = root.querySelector('[data-rp-restart]');
+      if (btn) btn.addEventListener('click', onRestart);
+    }
+
+    function onPick(e) {
+      if (selected !== null) return;
+      var i = parseInt(e.currentTarget.getAttribute('data-rp-option'), 10);
+      selected = i;
+      var q = deck[index];
+      if (i === q.correctIndex) correctCount++;
+      var opts = root.querySelectorAll('[data-rp-option]');
+      for (var k = 0; k < opts.length; k++) {
+        var idx = parseInt(opts[k].getAttribute('data-rp-option'), 10);
+        opts[k].disabled = true;
+        if (idx === q.correctIndex) opts[k].className = 'rp-quiz-option correct';
+        else if (idx === selected) opts[k].className = 'rp-quiz-option incorrect';
+        else opts[k].className = 'rp-quiz-option dim';
+      }
+      var feedback = root.querySelector('[data-rp-feedback]');
+      if (feedback) {
+        var fb = '<div class="rp-quiz-feedback">';
+        if (selected === q.correctIndex) {
+          fb += '<p class="rp-success">Correct.</p>';
+        } else {
+          fb += '<p class="rp-error">Not quite — the answer is &ldquo;' +
+            escapeHtml(q.options[q.correctIndex]) + '&rdquo;.</p>';
+        }
+        if (q.explanation) {
+          fb += '<p class="rp-quiz-explanation">' + escapeHtml(q.explanation) + '</p>';
+        }
+        var nextLabel = (index + 1 >= deck.length) ? 'See score' : 'Next question';
+        fb += '<button type="button" class="rp-quiz-next" data-rp-next>' + nextLabel + '</button></div>';
+        feedback.outerHTML = fb;
+      }
+      var nextBtn = root.querySelector('[data-rp-next]');
+      if (nextBtn) nextBtn.addEventListener('click', onNext);
+    }
+
+    function onNext() {
+      if (index + 1 >= deck.length) {
+        finished = true;
+        renderScore();
+        return;
+      }
+      index++;
+      selected = null;
+      renderQuestion();
+    }
+
+    function onRestart() {
+      deck = buildDeck();
+      index = 0;
+      selected = null;
+      correctCount = 0;
+      finished = false;
+      renderQuestion();
+    }
+
+    if (deck.length === 0) renderEmpty();
+    else renderQuestion();
   }
 
   function mountAll() {
