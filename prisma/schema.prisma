@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ToolType {
+  REFLECTION
+  QUIZ
+}
+
+enum ReflectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Tool {
+  id          String   @id @default(cuid())
+  type        ToolType
+  title       String
+  topic       String?
+  description String?
+  themePreset String   @default("card")
+  customCss   String?
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  prompts     Prompt[]
+  questions   Question[]
+}
+
+model Prompt {
+  id        String   @id @default(cuid())
+  toolId    String
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  text      String
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  reflections Reflection[]
+
+  @@index([toolId, active])
+}
+
+model Reflection {
+  id         String           @id @default(cuid())
+  promptId   String
+  prompt     Prompt           @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  authorName String
+  body       String
+  status     ReflectionStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+
+  @@index([promptId, status])
+  @@index([status, createdAt])
+}
+
+model Question {
+  id           String   @id @default(cuid())
+  toolId       String
+  tool         Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  bank         String   @default("default")
+  text         String
+  options      Json
+  correctIndex Int
+  explanation  String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([toolId, bank, active])
+}
